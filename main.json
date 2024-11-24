@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.31.92.45157",
-      "templateHash": "3498357822570238023"
+      "version": "0.31.34.60546",
+      "templateHash": "6689448079089024360"
     }
   },
   "parameters": {
@@ -26,7 +26,8 @@
       "defaultValue": 2
     },
     "vmAdminUsername": {
-      "type": "string"
+      "type": "string",
+      "defaultValue": "azureuser"
     },
     "vmAdminPassword": {
       "type": "securestring"
@@ -34,9 +35,27 @@
     "vmSize2Cores": {
       "type": "string",
       "defaultValue": "Standard_D2s_v3"
+    },
+    "serviceCidr": {
+      "type": "string",
+      "defaultValue": "10.3.0.0/16"
+    },
+    "dnsServiceIP": {
+      "type": "string",
+      "defaultValue": "10.3.0.10"
+    },
+    "podCidr": {
+      "type": "string",
+      "defaultValue": "10.2.0.0/16"
     }
   },
   "resources": [
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2021-02-01",
+      "name": "[format('{0}-nsg', parameters('aksName'))]",
+      "location": "[parameters('location')]"
+    },
     {
       "type": "Microsoft.Network/virtualNetworks",
       "apiVersion": "2021-02-01",
@@ -52,28 +71,37 @@
           {
             "name": "subnet1",
             "properties": {
-              "addressPrefix": "10.0.1.0/24"
+              "addressPrefix": "10.0.1.0/24",
+              "networkSecurityGroup": {
+                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('aksName')))]"
+              }
             }
           },
           {
             "name": "subnet2",
             "properties": {
-              "addressPrefix": "10.0.2.0/24"
+              "addressPrefix": "10.0.2.0/24",
+              "networkSecurityGroup": {
+                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('aksName')))]"
+              }
             }
           }
         ]
-      }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('aksName')))]"
+      ]
     },
     {
       "type": "Microsoft.ContainerService/managedClusters",
-      "apiVersion": "2023-05-01",
+      "apiVersion": "2024-08-01",
       "name": "[parameters('aksName')]",
       "location": "[parameters('location')]",
       "identity": {
         "type": "SystemAssigned"
       },
       "properties": {
-        "kubernetesVersion": "1.20.7",
+        "kubernetesVersion": "1.28.9",
         "dnsPrefix": "[parameters('aksName')]",
         "agentPoolProfiles": [
           {
@@ -81,18 +109,39 @@
             "count": "[parameters('nodeCount')]",
             "vmSize": "[parameters('vmSize')]",
             "osType": "Linux",
-            "vnetSubnetID": "[reference(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('aksName'))), '2021-02-01').subnets[0].id]"
+            "vnetSubnetID": "[reference(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('aksName'))), '2021-02-01').subnets[0].id]",
+            "mode": "System"
           }
         ],
         "networkProfile": {
           "networkPlugin": "azure",
           "loadBalancerSku": "Standard",
-          "networkPolicy": "calico"
+          "networkPolicy": "calico",
+          "serviceCidr": "[parameters('serviceCidr')]",
+          "dnsServiceIP": "[parameters('dnsServiceIP')]",
+          "podCidr": "[parameters('podCidr')]"
+        },
+        "addonProfiles": {
+          "azureKeyvaultSecretsProvider": {
+            "enabled": true,
+            "config": {
+              "secretStore": "AzureKeyVault"
+            }
+          }
         }
       },
       "dependsOn": [
         "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('aksName')))]"
       ]
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2021-02-01",
+      "name": "publicIP1",
+      "location": "[parameters('location')]",
+      "properties": {
+        "publicIPAllocationMethod": "Dynamic"
+      }
     },
     {
       "type": "Microsoft.Network/networkInterfaces",
@@ -107,12 +156,16 @@
               "subnet": {
                 "id": "[reference(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('aksName'))), '2021-02-01').subnets[0].id]"
               },
-              "privateIPAllocationMethod": "Dynamic"
+              "privateIPAllocationMethod": "Dynamic",
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', 'publicIP1')]"
+              }
             }
           }
         ]
       },
       "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses', 'publicIP1')]",
         "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('aksName')))]"
       ]
     },
@@ -154,6 +207,34 @@
       ]
     },
     {
+      "type": "Microsoft.Compute/virtualMachines/extensions",
+      "apiVersion": "2021-07-01",
+      "name": "[format('{0}/{1}', 'vm1', 'installTelnet')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "publisher": "Microsoft.Compute",
+        "type": "CustomScriptExtension",
+        "typeHandlerVersion": "1.10",
+        "autoUpgradeMinorVersion": true,
+        "settings": {
+          "fileUris": [],
+          "commandToExecute": "powershell.exe Install-WindowsFeature -Name Telnet-Client"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Compute/virtualMachines', 'vm1')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2021-02-01",
+      "name": "publicIP2",
+      "location": "[parameters('location')]",
+      "properties": {
+        "publicIPAllocationMethod": "Dynamic"
+      }
+    },
+    {
       "type": "Microsoft.Network/networkInterfaces",
       "apiVersion": "2021-02-01",
       "name": "nic2",
@@ -166,12 +247,16 @@
               "subnet": {
                 "id": "[reference(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('aksName'))), '2021-02-01').subnets[1].id]"
               },
-              "privateIPAllocationMethod": "Dynamic"
+              "privateIPAllocationMethod": "Dynamic",
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', 'publicIP2')]"
+              }
             }
           }
         ]
       },
       "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses', 'publicIP2')]",
         "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('aksName')))]"
       ]
     },
@@ -213,9 +298,28 @@
       ]
     },
     {
+      "type": "Microsoft.Compute/virtualMachines/extensions",
+      "apiVersion": "2021-07-01",
+      "name": "[format('{0}/{1}', 'vm2', 'installTelnet')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "publisher": "Microsoft.Compute",
+        "type": "CustomScriptExtension",
+        "typeHandlerVersion": "1.10",
+        "autoUpgradeMinorVersion": true,
+        "settings": {
+          "fileUris": [],
+          "commandToExecute": "powershell.exe Install-WindowsFeature -Name Telnet-Client"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Compute/virtualMachines', 'vm2')]"
+      ]
+    },
+    {
       "type": "Microsoft.ContainerRegistry/registries",
       "apiVersion": "2023-07-01",
-      "name": "testgab-acr",
+      "name": "testgabacr",
       "location": "[parameters('location')]",
       "sku": {
         "name": "Basic"
@@ -223,6 +327,36 @@
       "properties": {
         "adminUserEnabled": true
       }
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2020-04-01-preview",
+      "scope": "[format('Microsoft.ContainerRegistry/registries/{0}', 'testgabacr')]",
+      "name": "[guid(subscription().subscriptionId, resourceId('Microsoft.ContainerRegistry/registries', 'testgabacr'), 'acrpull')]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')]",
+        "principalId": "[reference(resourceId('Microsoft.ContainerService/managedClusters', parameters('aksName')), '2024-08-01').identityProfile.kubeletidentity.objectId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ContainerRegistry/registries', 'testgabacr')]",
+        "[resourceId('Microsoft.ContainerService/managedClusters', parameters('aksName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2020-04-01-preview",
+      "scope": "[format('Microsoft.Network/virtualNetworks/{0}', format('{0}-vnet', parameters('aksName')))]",
+      "name": "[guid(subscription().subscriptionId, resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('aksName'))), 'NetworkContributor')]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
+        "principalId": "[reference(resourceId('Microsoft.ContainerService/managedClusters', parameters('aksName')), '2024-08-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ContainerService/managedClusters', parameters('aksName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('aksName')))]"
+      ]
     }
   ]
 }
