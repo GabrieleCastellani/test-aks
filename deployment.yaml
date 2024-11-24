@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: source-ip-server-deployment
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: source-ip-server
+  template:
+    metadata:
+      labels:
+        app: source-ip-server
+    spec:
+      containers:
+      - name: source-ip-server
+        image: testgabacr.azurecr.io/testpod:latest
+        ports:
+        - containerPort: 12345
+        resources:
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: source-ip-server-service
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-preserve-source-ip: "true"
+    azure-load-balancer-disable-tcp-reset: "false"
+spec:
+  type: LoadBalancer
+  loadBalancerIP: 10.0.1.100
+  externalTrafficPolicy: Local
+  selector:
+    app: source-ip-server
+  ports:
+  - protocol: TCP
+    port: 12345
+    targetPort: 12345
+

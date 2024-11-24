@@ -1,0 +1,228 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.31.92.45157",
+      "templateHash": "3498357822570238023"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "Italy North"
+    },
+    "aksName": {
+      "type": "string",
+      "defaultValue": "TestAKS"
+    },
+    "vmSize": {
+      "type": "string",
+      "defaultValue": "Standard_B2s"
+    },
+    "nodeCount": {
+      "type": "int",
+      "defaultValue": 2
+    },
+    "vmAdminUsername": {
+      "type": "string"
+    },
+    "vmAdminPassword": {
+      "type": "securestring"
+    },
+    "vmSize2Cores": {
+      "type": "string",
+      "defaultValue": "Standard_D2s_v3"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2021-02-01",
+      "name": "[format('{0}-vnet', parameters('aksName'))]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "10.0.0.0/16"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "subnet1",
+            "properties": {
+              "addressPrefix": "10.0.1.0/24"
+            }
+          },
+          {
+            "name": "subnet2",
+            "properties": {
+              "addressPrefix": "10.0.2.0/24"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.ContainerService/managedClusters",
+      "apiVersion": "2023-05-01",
+      "name": "[parameters('aksName')]",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "kubernetesVersion": "1.20.7",
+        "dnsPrefix": "[parameters('aksName')]",
+        "agentPoolProfiles": [
+          {
+            "name": "agentpool",
+            "count": "[parameters('nodeCount')]",
+            "vmSize": "[parameters('vmSize')]",
+            "osType": "Linux",
+            "vnetSubnetID": "[reference(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('aksName'))), '2021-02-01').subnets[0].id]"
+          }
+        ],
+        "networkProfile": {
+          "networkPlugin": "azure",
+          "loadBalancerSku": "Standard",
+          "networkPolicy": "calico"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('aksName')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2021-02-01",
+      "name": "nic1",
+      "location": "[parameters('location')]",
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "subnet": {
+                "id": "[reference(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('aksName'))), '2021-02-01').subnets[0].id]"
+              },
+              "privateIPAllocationMethod": "Dynamic"
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('aksName')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2021-07-01",
+      "name": "vm1",
+      "location": "[parameters('location')]",
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[parameters('vmSize2Cores')]"
+        },
+        "osProfile": {
+          "computerName": "vm1",
+          "adminUsername": "[parameters('vmAdminUsername')]",
+          "adminPassword": "[parameters('vmAdminPassword')]"
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', 'nic1')]"
+            }
+          ]
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "MicrosoftWindowsServer",
+            "offer": "WindowsServer",
+            "sku": "2019-Datacenter",
+            "version": "latest"
+          },
+          "osDisk": {
+            "createOption": "FromImage"
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces', 'nic1')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2021-02-01",
+      "name": "nic2",
+      "location": "[parameters('location')]",
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "subnet": {
+                "id": "[reference(resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('aksName'))), '2021-02-01').subnets[1].id]"
+              },
+              "privateIPAllocationMethod": "Dynamic"
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', format('{0}-vnet', parameters('aksName')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2021-07-01",
+      "name": "vm2",
+      "location": "[parameters('location')]",
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[parameters('vmSize2Cores')]"
+        },
+        "osProfile": {
+          "computerName": "vm2",
+          "adminUsername": "[parameters('vmAdminUsername')]",
+          "adminPassword": "[parameters('vmAdminPassword')]"
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', 'nic2')]"
+            }
+          ]
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "MicrosoftWindowsServer",
+            "offer": "WindowsServer",
+            "sku": "2019-Datacenter",
+            "version": "latest"
+          },
+          "osDisk": {
+            "createOption": "FromImage"
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces', 'nic2')]"
+      ]
+    },
+    {
+      "type": "Microsoft.ContainerRegistry/registries",
+      "apiVersion": "2023-07-01",
+      "name": "testgab-acr",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Basic"
+      },
+      "properties": {
+        "adminUserEnabled": true
+      }
+    }
+  ]
+}
