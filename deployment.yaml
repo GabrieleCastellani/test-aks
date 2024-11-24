@@ -31,16 +31,17 @@ kind: Service
 metadata:
   name: source-ip-server-service
   annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
     service.beta.kubernetes.io/azure-load-balancer-preserve-source-ip: "true"
     azure-load-balancer-disable-tcp-reset: "false"
+    
 spec:
   type: LoadBalancer
-  loadBalancerIP: 10.0.1.100
   externalTrafficPolicy: Local
   selector:
     app: source-ip-server
   ports:
   - protocol: TCP
     port: 12345
-    targetPort: 12345
+
 

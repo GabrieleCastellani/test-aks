@@ -20,23 +20,7 @@ param podCidr string = '10.2.0.0/16'
 resource nsg 'Microsoft.Network/networkSecurityGroups@2021-02-01' = {
   name: '${aksName}-nsg'
   location: location
-  properties: {
-    securityRules: [
-      {
-        name: 'AllowSSH'
-        properties: {
-          priority: 1000
-          direction: 'Inbound'
-          access: 'Allow'
-          protocol: 'Tcp'
-          sourcePortRange: '*'
-          destinationPortRange: '22'
-          sourceAddressPrefix: '*'
-          destinationAddressPrefix: '*'
-        }
-      }
-    ]
-  }
+  
 }
 
 resource vnet 'Microsoft.Network/virtualNetworks@2021-02-01' = {
@@ -292,6 +276,16 @@ resource acrRoleAssignment 'Microsoft.Authorization/roleAssignments@2020-04-01-p
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d') // AcrPull role
     principalId: aksCluster.properties.identityProfile.kubeletidentity.objectId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource vnetRoleAssignment 'Microsoft.Authorization/roleAssignments@2020-04-01-preview' = {
+  name: guid(subscription().subscriptionId, vnet.id, 'NetworkContributor')
+  scope: vnet
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c') // Network Contributor role
+    principalId: aksCluster.identity.principalId
     principalType: 'ServicePrincipal'
   }
 }
